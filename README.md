@@ -65,6 +65,138 @@ graph TD
     Container -->|onMessage| SubChat
 ```
 
+### Layered Architecture
+This system is organized logically into five components, decoupling configuration setup from models, control mappings, template-based transmission services, and individual message listener sub-classes.
+
+```mermaid
+graph TD
+    subgraph "Configuration Layer"
+        RC[RedisConfig.java]
+    end
+
+    subgraph "Model Layer"
+        MR[MessageRequest.java]
+        CM[ChannelMessage.java]
+    end
+
+    subgraph "Controller Layer"
+        PC[PublisherController.java]
+    end
+
+    subgraph "Service Layer"
+        RT[RedisTemplate]
+        LC[RedisMessageListenerContainer]
+    end
+
+    subgraph "Subscriber Layer"
+        CS[ChatSubscriber]
+        GS[GeneralSubscriber]
+        SS[SportsSubscriber]
+        TS[TechSubscriber]
+        PS[PrivateSubscriber]
+        DS[DynamicChannelSubscriber]
+    end
+
+    RC -->|Creates| RT
+    RC -->|Creates| LC
+    
+    PC -->|Uses| RT
+    PC -->|Receives| MR
+    PC -->|Receives| CM
+    
+    RT -->|Sends to| Redis[(Redis Server)]
+    
+    Redis -->|Delivers to| LC
+    LC -->|Routes to| CS
+    LC -->|Routes to| GS
+    LC -->|Routes to| SS
+    LC -->|Routes to| TS
+    LC -->|Routes to| PS
+    LC -->|Routes to| DS
+    
+    CS -->|Prints| Console[Console Output]
+    GS -->|Prints| Console
+    SS -->|Prints| Console
+    TS -->|Prints| Console
+    PS -->|Prints| Console
+    DS -->|Prints| Console
+
+    classDef config fill:#b3e5fc,stroke:#01579b,stroke-width:2px
+    classDef model fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    classDef controller fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px
+    classDef service fill:#ffccbc,stroke:#bf360c,stroke-width:2px
+    classDef subscriber fill:#e1bee7,stroke:#4a148c,stroke-width:2px
+    classDef redis fill:#ffab91,stroke:#d84315,stroke-width:2px
+    
+    class RC config
+    class MR,CM model
+    class PC controller
+    class RT,LC service
+    class CS,GS,SS,TS,PS,DS subscriber
+    class Redis redis
+```
+
+### Request Processing & Message Routing Flow
+The application routes inbound payload packets conditionally based on target channel qualifiers, delegating serialization checks before dumping outputs to standard console logs.
+
+```mermaid
+flowchart TD
+    Start([Start: HTTP Request]) --> A{Channel Type?}
+    
+    A -->|Static Channel| B[Send to specific channel]
+    A -->|Dynamic Channel| C[Send to chat.* channel]
+    A -->|Broadcast| D[Send to ALL channels]
+    
+    B --> E1[General Channel]
+    B --> E2[Sports Channel]
+    B --> E3[Tech Channel]
+    B --> E4[Private Channel]
+    
+    C --> F[Dynamic Channel<br/>chat.random]
+    D --> G[All Channels]
+    
+    E1 --> H1[GeneralSubscriber]
+    E2 --> H2[SportsSubscriber]
+    E3 --> H3[TechSubscriber]
+    E4 --> H4[PrivateSubscriber]
+    
+    C --> F
+    F --> H5[DynamicChannelSubscriber]
+    G --> H1
+    G --> H2
+    G --> H3
+    G --> H4
+    G --> H5
+    
+    H1 --> I{Message Type?}
+    H2 --> I
+    H3 --> I
+    H4 --> I
+    H5 --> I
+    
+    I -->|String| J1[Print raw string]
+    I -->|JSON| J2[Deserialize to ChannelMessage]
+    I -->|Object| J3[Print object fields]
+    
+    J1 --> K[Console Output]
+    J2 --> K
+    J3 --> K
+    
+    K --> End([End])
+
+    classDef start fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef process fill:#e3f2fd,stroke:#01579b,stroke-width:2px
+    classDef channel fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef subscriber fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef output fill:#fce4ec,stroke:#b71c1c,stroke-width:2px
+    
+    class Start,End start
+    class A,B,C,D,I process
+    class E1,E2,E3,E4,F,G channel
+    class H1,H2,H3,H4,H5 subscriber
+    class J1,J2,J3,K output
+```
+
 ### Message Life Cycle Sequence
 The sequence diagram below displays the end-to-end flow of a message published via the REST API to subscribers.
 
@@ -85,6 +217,107 @@ sequenceDiagram
     Redis-->>Cont: Push message payload
     Cont->>Sub: onMessage(Message, pattern)
     Note over Sub: Parse message bytes & print to standard output console
+```
+
+### Class Diagram
+The static code blueprint of the Spring Boot application, detailing annotations, operations, fields, and logical subscriber dependencies.
+
+```mermaid
+classDiagram
+    class RedisPubSubApplication {
+        +main(String[] args)
+    }
+    
+    class RedisConfig {
+        +CHANNEL_GENERAL: String
+        +CHANNEL_SPORTS: String
+        +CHANNEL_TECH: String
+        +CHANNEL_PRIVATE: String
+        +redisTemplate(RedisConnectionFactory)
+        +redisMessageListenerContainer()
+    }
+    
+    class PublisherController {
+        -RedisTemplate redisTemplate
+        +publishGeneral(MessageRequest)
+        +publishSports(MessageRequest)
+        +publishTech(MessageRequest)
+        +publishPrivate(MessageRequest)
+        +publishToAny(String, MessageRequest)
+        +publishBroadcast(MessageRequest)
+        +publishDetailed(ChannelMessage)
+    }
+    
+    class MessageRequest {
+        -String message
+        +getMessage()
+        +setMessage(String)
+    }
+    
+    class ChannelMessage {
+        -String channel
+        -String message
+        -String sender
+        -long timestamp
+        +getChannel()
+        +setChannel(String)
+        +getMessage()
+        +setMessage(String)
+        +getSender()
+        +setSender(String)
+        +getTimestamp()
+        +setTimestamp(long)
+    }
+    
+    class MessageListener {
+        <<interface>>
+        +onMessage(Message, byte[])
+    }
+    
+    class ChatSubscriber {
+        +onMessage(Message, byte[])
+    }
+    
+    class GeneralSubscriber {
+        +onMessage(Message, byte[])
+    }
+    
+    class SportsSubscriber {
+        +onMessage(Message, byte[])
+    }
+    
+    class TechSubscriber {
+        +onMessage(Message, byte[])
+    }
+    
+    class PrivateSubscriber {
+        +onMessage(Message, byte[])
+    }
+    
+    class DynamicChannelSubscriber {
+        +onMessage(Message, byte[])
+    }
+    
+    RedisPubSubApplication --> RedisConfig : uses
+    RedisPubSubApplication --> PublisherController : uses
+    
+    PublisherController --> RedisConfig : uses constants
+    PublisherController --> MessageRequest : receives
+    PublisherController --> ChannelMessage : receives
+    
+    RedisConfig --> ChatSubscriber : registers
+    RedisConfig --> GeneralSubscriber : registers
+    RedisConfig --> SportsSubscriber : registers
+    RedisConfig --> TechSubscriber : registers
+    RedisConfig --> PrivateSubscriber : registers
+    RedisConfig --> DynamicChannelSubscriber : registers
+    
+    ChatSubscriber ..|> MessageListener : implements
+    GeneralSubscriber ..|> MessageListener : implements
+    SportsSubscriber ..|> MessageListener : implements
+    TechSubscriber ..|> MessageListener : implements
+    PrivateSubscriber ..|> MessageListener : implements
+    DynamicChannelSubscriber ..|> MessageListener : implements
 ```
 
 ---
